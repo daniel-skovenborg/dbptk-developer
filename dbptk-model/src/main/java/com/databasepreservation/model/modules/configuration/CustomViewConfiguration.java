@@ -21,6 +21,7 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 public class CustomViewConfiguration {
 
   private String name;
+  private boolean simulateTable = false;
   private String description;
   private String query;
   private List<ColumnConfiguration> columns;
@@ -40,6 +41,22 @@ public class CustomViewConfiguration {
 
   public void setName(String name) {
     this.name = name;
+  }
+
+  /**
+   * Should the custom view simulate a table in the archive?
+   * <p>
+   * This will remove the prefix from the name. The view will still be included in
+   * the archive with the prefix to document the archive.
+   * 
+   * @return Boolean
+   */
+  public boolean isSimulateTable() {
+    return simulateTable;
+  }
+
+  public void setSimulateTable(boolean simulateTable) {
+    this.simulateTable = simulateTable;
   }
 
   public String getDescription() {

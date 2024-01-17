@@ -704,6 +704,7 @@ public class JDBCImportModule implements DatabaseImportModule {
     if (!customViewConfigurations.isEmpty()) {
       for (CustomViewConfiguration custom : customViewConfigurations) {
         ViewStructure view = new ViewStructure();
+        // Use prefix
         view.setName(CUSTOM_VIEW_NAME_PREFIX + custom.getName());
         view.setDescription(custom.getDescription());
         view.setQueryOriginal(custom.getQuery());
@@ -878,10 +879,10 @@ public class JDBCImportModule implements DatabaseImportModule {
     String query = custom.getQuery();
     PrimaryKey primaryKey = getPrimaryKeyConfigurationAsPrimaryKey(custom.getPrimaryKey(), viewName);
 
-    String name = CUSTOM_VIEW_NAME_PREFIX + viewName;
+    String name = (custom.isSimulateTable() ? "" : CUSTOM_VIEW_NAME_PREFIX) + viewName;
 
     TableStructure view = new TableStructure();
-    view.setId(schema.getName() + "." + CUSTOM_VIEW_NAME_PREFIX + viewName);
+    view.setId(schema.getName() + "." + name);
     view.setName(name);
     view.setSchema(schema);
     view.setIndex(tableIndex);
