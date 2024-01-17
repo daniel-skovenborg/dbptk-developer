@@ -710,7 +710,7 @@ public class JDBCImportModule implements DatabaseImportModule {
         view.setQueryOriginal(custom.getQuery());
 
         try {
-          view.setColumns(getColumnsFromCustomView(custom.getName(), custom.getQuery()));
+          view.setColumns(getColumnsFromCustomView(custom.getName(), custom.getQuery(), custom.getPrimaryKey()));
         } catch (SQLException e) {
           reporter.ignored("Columns from custom view " + custom.getName() + " in schema " + schemaName,
             "there was a problem retrieving them form the database");
@@ -888,7 +888,7 @@ public class JDBCImportModule implements DatabaseImportModule {
     view.setIndex(tableIndex);
     view.setDescription(description);
 
-    view.setColumns(getColumnsFromCustomView(viewName, query));
+    view.setColumns(getColumnsFromCustomView(viewName, query, custom.getPrimaryKey()));
     view.setPrimaryKey(primaryKey);
     view.setForeignKeys(custom.getForeignKeys() == null ? new ArrayList<>()
       : custom.getForeignKeys().stream().map(c -> getForeignKeyConfigurationAsForeignKey(c, name))
@@ -1149,7 +1149,8 @@ public class JDBCImportModule implements DatabaseImportModule {
     return columns;
   }
 
-  protected List<ColumnStructure> getColumnsFromCustomView(String viewName, String query)
+  protected List<ColumnStructure> getColumnsFromCustomView(String viewName, String query,
+    PrimaryKeyConfiguration primaryKey)
     throws ModuleException, SQLException {
     List<ColumnStructure> columns = new ArrayList<>();
 
@@ -1164,12 +1165,13 @@ public class JDBCImportModule implements DatabaseImportModule {
         String columnTypeName = metaData.getColumnTypeName(i);
         int columnDisplaySize = metaData.getColumnDisplaySize(i);
         int precision = metaData.getPrecision(i);
+        boolean nillable = primaryKey == null || !primaryKey.getColumnNames().contains(columnName);
 
         Type checkedType = datatypeImporter.getCheckedType(dbStructure, actualSchema, tableName, columnName, columnType,
           columnTypeName, columnDisplaySize, precision, 10);
 
-        ColumnStructure column = new ColumnStructure(viewName + "." + columnName, columnName, checkedType, true, "", "",
-          false);
+        ColumnStructure column = new ColumnStructure(viewName + "." + columnName, columnName, checkedType, nillable, "",
+          "", false);
 
         columns.add(column);
       }
