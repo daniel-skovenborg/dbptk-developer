@@ -7,12 +7,12 @@
  */
 package com.databasepreservation.model.modules.configuration;
 
-import com.databasepreservation.Constants;
-import com.fasterxml.jackson.annotation.JsonPropertyOrder;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+
+import com.databasepreservation.Constants;
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
 /**
  * @author Miguel Guimarães <mguimaraes@keep.pt>
@@ -24,6 +24,8 @@ public class CustomViewConfiguration {
   private String description;
   private String query;
   private List<ColumnConfiguration> columns;
+  private PrimaryKeyConfiguration primaryKey;
+  private List<ForeignKeyConfiguration> foreignKeys;
 
   public CustomViewConfiguration() {
     name = Constants.EMPTY;
@@ -64,6 +66,22 @@ public class CustomViewConfiguration {
     this.columns = columns;
   }
 
+  public PrimaryKeyConfiguration getPrimaryKey() {
+    return primaryKey;
+  }
+
+  public void setPrimaryKey(PrimaryKeyConfiguration primaryKey) {
+    this.primaryKey = primaryKey;
+  }
+
+  public List<ForeignKeyConfiguration> getForeignKeys() {
+    return foreignKeys;
+  }
+
+  public void setForeignKeys(List<ForeignKeyConfiguration> foreignKeys) {
+    this.foreignKeys = foreignKeys;
+  }
+
   @Override
   public boolean equals(Object o) {
     if (this == o) return true;
@@ -72,7 +90,8 @@ public class CustomViewConfiguration {
     return Objects.equals(name, that.name) &&
             Objects.equals(description, that.description) &&
             Objects.equals(query, that.query) &&
-            Objects.equals(columns, that.columns);
+      Objects.equals(columns, that.columns) && Objects.equals(primaryKey, that.primaryKey)
+      && Objects.equals(foreignKeys, that.foreignKeys);
   }
 
   @Override

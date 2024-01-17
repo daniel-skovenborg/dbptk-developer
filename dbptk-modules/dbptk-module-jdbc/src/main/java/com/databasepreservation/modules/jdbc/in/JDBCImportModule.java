@@ -17,30 +17,11 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.sql.Array;
-import java.sql.Blob;
-import java.sql.Connection;
-import java.sql.DatabaseMetaData;
+import java.sql.*;
 import java.sql.Date;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
-import java.sql.SQLException;
-import java.sql.SQLFeatureNotSupportedException;
-import java.sql.Statement;
-import java.sql.Struct;
-import java.sql.Time;
-import java.sql.Timestamp;
-import java.sql.Types;
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -51,55 +32,22 @@ import org.yaml.snakeyaml.Yaml;
 import com.databasepreservation.Constants;
 import com.databasepreservation.managers.ModuleConfigurationManager;
 import com.databasepreservation.managers.RemoteConnectionManager;
-import com.databasepreservation.model.data.ArrayCell;
-import com.databasepreservation.model.data.BinaryCell;
-import com.databasepreservation.model.data.Cell;
-import com.databasepreservation.model.data.NullCell;
-import com.databasepreservation.model.data.Row;
-import com.databasepreservation.model.data.SimpleCell;
+import com.databasepreservation.model.data.*;
 import com.databasepreservation.model.exception.InvalidDataException;
 import com.databasepreservation.model.exception.ModuleException;
 import com.databasepreservation.model.exception.SQLParseException;
 import com.databasepreservation.model.exception.TableNotFoundException;
 import com.databasepreservation.model.modules.DatabaseImportModule;
 import com.databasepreservation.model.modules.DatatypeImporter;
-import com.databasepreservation.model.modules.configuration.CustomViewConfiguration;
-import com.databasepreservation.model.modules.configuration.ModuleConfiguration;
+import com.databasepreservation.model.modules.configuration.*;
 import com.databasepreservation.model.modules.filters.DatabaseFilterModule;
 import com.databasepreservation.model.reporters.Reporter;
-import com.databasepreservation.model.structure.CandidateKey;
-import com.databasepreservation.model.structure.CheckConstraint;
-import com.databasepreservation.model.structure.ColumnStructure;
-import com.databasepreservation.model.structure.DatabaseStructure;
-import com.databasepreservation.model.structure.ForeignKey;
-import com.databasepreservation.model.structure.PrimaryKey;
-import com.databasepreservation.model.structure.PrivilegeStructure;
-import com.databasepreservation.model.structure.Reference;
-import com.databasepreservation.model.structure.RoleStructure;
-import com.databasepreservation.model.structure.RoutineStructure;
-import com.databasepreservation.model.structure.SchemaStructure;
-import com.databasepreservation.model.structure.TableStructure;
-import com.databasepreservation.model.structure.Trigger;
-import com.databasepreservation.model.structure.UserStructure;
-import com.databasepreservation.model.structure.ViewStructure;
-import com.databasepreservation.model.structure.type.ComposedTypeArray;
-import com.databasepreservation.model.structure.type.ComposedTypeStructure;
-import com.databasepreservation.model.structure.type.SimpleTypeBinary;
-import com.databasepreservation.model.structure.type.SimpleTypeBoolean;
-import com.databasepreservation.model.structure.type.SimpleTypeDateTime;
-import com.databasepreservation.model.structure.type.SimpleTypeNumericApproximate;
-import com.databasepreservation.model.structure.type.SimpleTypeNumericExact;
-import com.databasepreservation.model.structure.type.Type;
-import com.databasepreservation.model.structure.type.UnsupportedDataType;
+import com.databasepreservation.model.structure.*;
+import com.databasepreservation.model.structure.type.*;
 import com.databasepreservation.modules.DefaultExceptionNormalizer;
 import com.databasepreservation.modules.SQLHelper;
 import com.databasepreservation.modules.jdbc.JDBCModuleFactory;
-import com.databasepreservation.utils.ConfigUtils;
-import com.databasepreservation.utils.JodaUtils;
-import com.databasepreservation.utils.MapUtils;
-import com.databasepreservation.utils.MiscUtils;
-import com.databasepreservation.utils.PortUtils;
-import com.databasepreservation.utils.RemoteConnectionUtils;
+import com.databasepreservation.utils.*;
 import com.jcraft.jsch.Session;
 
 /**
@@ -636,14 +584,11 @@ public class JDBCImportModule implements DatabaseImportModule {
 
     if (!customViewConfigurations.isEmpty()) {
       for (CustomViewConfiguration custom : customViewConfigurations) {
-        String description = custom.getDescription();
-        String query = custom.getQuery();
         String name = custom.getName();
         LOGGER.info("Obtaining table structure for custom view {}", name);
 
         try {
-          TableStructure customViewStructureAsTable = getCustomViewStructureAsTable(schema, name, tableIndex,
-            description, query);
+          TableStructure customViewStructureAsTable = getCustomViewStructureAsTable(schema, tableIndex, custom);
           tables.add(customViewStructureAsTable);
           tableIndex++;
         } catch (SQLException e) {
@@ -926,18 +871,27 @@ public class JDBCImportModule implements DatabaseImportModule {
     return view;
   }
 
-  protected TableStructure getCustomViewStructureAsTable(SchemaStructure schema, String viewName, int tableIndex,
-    String description, String query) throws SQLException, ModuleException {
+  protected TableStructure getCustomViewStructureAsTable(SchemaStructure schema, int tableIndex,
+    CustomViewConfiguration custom) throws SQLException, ModuleException {
+    String viewName = custom.getName();
+    String description = custom.getDescription();
+    String query = custom.getQuery();
+    PrimaryKey primaryKey = getPrimaryKeyConfigurationAsPrimaryKey(custom.getPrimaryKey(), viewName);
+
+    String name = CUSTOM_VIEW_NAME_PREFIX + viewName;
+
     TableStructure view = new TableStructure();
     view.setId(schema.getName() + "." + CUSTOM_VIEW_NAME_PREFIX + viewName);
-    view.setName(CUSTOM_VIEW_NAME_PREFIX + viewName);
+    view.setName(name);
     view.setSchema(schema);
     view.setIndex(tableIndex);
     view.setDescription(description);
 
     view.setColumns(getColumnsFromCustomView(viewName, query));
-    view.setPrimaryKey(null);
-    view.setForeignKeys(new ArrayList<>());
+    view.setPrimaryKey(primaryKey);
+    view.setForeignKeys(custom.getForeignKeys() == null ? new ArrayList<>()
+      : custom.getForeignKeys().stream().map(c -> getForeignKeyConfigurationAsForeignKey(c, name))
+        .collect(Collectors.toList()));
     view.setCandidateKeys(new ArrayList<>());
     view.setCheckConstraints(new ArrayList<>());
     view.setTriggers(new ArrayList<>());
@@ -946,6 +900,52 @@ public class JDBCImportModule implements DatabaseImportModule {
     view.setFromCustomView(true);
 
     return view;
+  }
+
+  private PrimaryKey getPrimaryKeyConfigurationAsPrimaryKey(PrimaryKeyConfiguration configuration, String tableName) {
+    PrimaryKey pk = new PrimaryKey();
+
+    if (configuration.getName() != null) {
+      pk.setName(configuration.getName());
+    } else {
+      pk.setName(getPrimaryKeyName(tableName));
+    }
+
+    pk.setDescription(configuration.getDescription());
+    pk.setColumnNames(configuration.getColumnNames());
+
+    return pk;
+  }
+
+  private ForeignKey getForeignKeyConfigurationAsForeignKey(ForeignKeyConfiguration configuration, String tableName) {
+    ForeignKey fk = new ForeignKey();
+
+    if (configuration.getReferences() == null || configuration.getReferences().isEmpty()) {
+      throw new IllegalArgumentException("Empty reference list in foreignKey configuration on " + tableName);
+    }
+
+    if (configuration.getName() != null) {
+      fk.setName(configuration.getName());
+    } else {
+      fk.setName(getForeignKeyName(configuration.getReferencedTable(), tableName,
+        configuration.getReferences().get(0).getColumn()));
+    }
+
+    fk.setReferencedTable(configuration.getReferencedTable());
+    fk.setReferences(configuration.getReferences().stream().map(this::getReferenceConfigurationAsReference)
+      .collect(Collectors.toList()));
+    fk.setDescription(configuration.getDescription());
+
+    return fk;
+  }
+
+  private Reference getReferenceConfigurationAsReference(ReferenceConfiguration configuration) {
+    Reference ref = new Reference();
+
+    ref.setColumn(configuration.getColumn());
+    ref.setReferenced(configuration.getReferenced());
+
+    return ref;
   }
 
   private int getRows(String schemaName, String tableName) throws SQLException, ModuleException {
@@ -1310,13 +1310,17 @@ public class JDBCImportModule implements DatabaseImportModule {
     }
 
     if (pkName == null) {
-      pkName = tableName + "_pkey";
+      pkName = getPrimaryKeyName(tableName);
     }
 
     PrimaryKey pk = new PrimaryKey();
     pk.setName(pkName);
     pk.setColumnNames(pkColumns);
     return pkColumns.isEmpty() ? null : pk;
+  }
+
+  private static String getPrimaryKeyName(String tableName) {
+    return tableName + "_pkey";
   }
 
   /**
@@ -1341,8 +1345,8 @@ public class JDBCImportModule implements DatabaseImportModule {
 
         String fkeyName = rs.getString("FK_NAME");
         if (fkeyName == null) {
-          fkeyName = "FK_" + rs.getString("PKTABLE_NAME") + "_" + rs.getString("FKTABLE_NAME") + "_"
-            + rs.getString("FKCOLUMN_NAME");
+          fkeyName = getForeignKeyName(rs.getString("PKTABLE_NAME"), rs.getString("FKTABLE_NAME"),
+            rs.getString("FKCOLUMN_NAME"));
         }
 
         for (ForeignKey key : foreignKeys) {
@@ -1371,6 +1375,12 @@ public class JDBCImportModule implements DatabaseImportModule {
       }
     }
     return foreignKeys;
+  }
+
+  private String getForeignKeyName(String pkTableName, String fkTableName, String fkColumnName) {
+    // TODO: This could probably lead to non-unique names in rare occasions where
+    // the same column is used in two compound foreign keys.
+    return "FK_" + pkTableName + "_" + fkTableName + "_" + fkColumnName;
   }
 
   protected String getReferencedSchema(String s) throws SQLException, ModuleException {
