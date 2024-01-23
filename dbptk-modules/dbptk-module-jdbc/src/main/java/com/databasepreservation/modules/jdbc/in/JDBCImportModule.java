@@ -703,6 +703,10 @@ public class JDBCImportModule implements DatabaseImportModule {
 
     if (!customViewConfigurations.isEmpty()) {
       for (CustomViewConfiguration custom : customViewConfigurations) {
+        // If simulating table, do not export as view, only as table.
+        if (custom.isSimulateTable())
+          continue;
+
         ViewStructure view = new ViewStructure();
         // Use prefix
         view.setName(CUSTOM_VIEW_NAME_PREFIX + custom.getName());

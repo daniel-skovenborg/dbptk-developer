@@ -12,12 +12,15 @@ import java.util.List;
 import java.util.Objects;
 
 import com.databasepreservation.Constants;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
 /**
  * @author Miguel Guimarães <mguimaraes@keep.pt>
  */
-@JsonPropertyOrder({"name", "description", "query"})
+@JsonPropertyOrder({"name", "simulateTable", "description", "query", "primaryKey", "foreignKeys"})
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class CustomViewConfiguration {
 
   private String name;
@@ -75,6 +78,7 @@ public class CustomViewConfiguration {
     this.query = query;
   }
 
+  @JsonIgnore
   public List<ColumnConfiguration> getColumns() {
     return columns;
   }
