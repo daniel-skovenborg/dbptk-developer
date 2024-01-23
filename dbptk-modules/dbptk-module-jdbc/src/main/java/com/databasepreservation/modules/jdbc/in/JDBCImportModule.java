@@ -932,8 +932,7 @@ public class JDBCImportModule implements DatabaseImportModule {
     if (configuration.getName() != null) {
       fk.setName(configuration.getName());
     } else {
-      fk.setName(getForeignKeyName(configuration.getReferencedTable(), tableName,
-        configuration.getReferences().get(0).getColumn()));
+      fk.setName(getForeignKeyName(tableName, configuration.getReferences().get(0).getColumn()));
     }
 
     fk.setReferencedTable(configuration.getReferencedTable());
@@ -1352,8 +1351,7 @@ public class JDBCImportModule implements DatabaseImportModule {
 
         String fkeyName = rs.getString("FK_NAME");
         if (fkeyName == null) {
-          fkeyName = getForeignKeyName(rs.getString("PKTABLE_NAME"), rs.getString("FKTABLE_NAME"),
-            rs.getString("FKCOLUMN_NAME"));
+          fkeyName = getForeignKeyName(rs.getString("FKTABLE_NAME"), rs.getString("FKCOLUMN_NAME"));
         }
 
         for (ForeignKey key : foreignKeys) {
@@ -1384,10 +1382,10 @@ public class JDBCImportModule implements DatabaseImportModule {
     return foreignKeys;
   }
 
-  private String getForeignKeyName(String pkTableName, String fkTableName, String fkColumnName) {
+  private String getForeignKeyName(String fkTableName, String fkColumnName) {
     // TODO: This could probably lead to non-unique names in rare occasions where
     // the same column is used in two compound foreign keys.
-    return "FK_" + pkTableName + "_" + fkTableName + "_" + fkColumnName;
+    return "FK_" + fkTableName + "_" + fkColumnName;
   }
 
   protected String getReferencedSchema(String s) throws SQLException, ModuleException {
