@@ -7,11 +7,14 @@
  */
 package com.databasepreservation.modules.config;
 
+import static java.util.stream.Collectors.toMap;
+
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collections;
-import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Stream;
 
 import com.databasepreservation.managers.ModuleConfigurationManager;
 import com.databasepreservation.model.exception.UnsupportedModuleException;
@@ -34,9 +37,14 @@ import com.databasepreservation.utils.ModuleConfigurationUtils;
  */
 public class Normalize1NFConfigurationModuleFactory implements DatabaseModuleFactory {
   public static final String PARAMETER_FILE = "file";
+  public static final String NO_SQL_QUOTES = "no-sql-quotes";
 
   private static final Parameter file = new Parameter().shortName("f").longName(PARAMETER_FILE)
     .description("Path to the import configuration file").hasArgument(true).setOptionalArgument(false).required(true);
+  private static final Parameter noSQLQuotes = new Parameter().shortName("nqc").longName(NO_SQL_QUOTES)
+    .description(
+      "Don't quote SQL identifiers in normalization view queries (use if applicable to get more readable queries)")
+    .hasArgument(false).required(false).valueIfNotSet("false").valueIfSet("true");
 
   @Override
   public boolean producesImportModules() {
@@ -60,9 +68,7 @@ public class Normalize1NFConfigurationModuleFactory implements DatabaseModuleFac
 
   @Override
   public Map<String, Parameter> getAllParameters() {
-    Map<String, Parameter> parameterHashMap = new HashMap<>();
-    parameterHashMap.put(file.longName(), file);
-    return parameterHashMap;
+    return Stream.of(file, noSQLQuotes).collect(toMap(Parameter::longName, Function.identity()));
   }
 
   @Override
@@ -77,7 +83,7 @@ public class Normalize1NFConfigurationModuleFactory implements DatabaseModuleFac
 
   @Override
   public Parameters getExportModuleParameters() {
-    return new Parameters(Collections.singletonList(file), null);
+    return new Parameters(List.of(file, noSQLQuotes), null);
   }
 
   @Override
@@ -89,6 +95,7 @@ public class Normalize1NFConfigurationModuleFactory implements DatabaseModuleFac
   @Override
   public DatabaseFilterModule buildExportModule(Map<Parameter, String> parameters, Reporter reporter) {
     Path pFile = Paths.get(parameters.get(file));
+    boolean pNoSQLQuotes = Boolean.parseBoolean(parameters.get(noSQLQuotes));
 
     reporter.exportModuleParameters(this.getModuleName(), PARAMETER_FILE,
       pFile.normalize().toAbsolutePath().toString());
@@ -102,6 +109,6 @@ public class Normalize1NFConfigurationModuleFactory implements DatabaseModuleFac
 
     reporter.exportModuleParameters(getModuleName(), PARAMETER_FILE, pFile.normalize().toAbsolutePath().toString());
 
-    return new Normalize1NFConfiguration(pFile);
+    return new Normalize1NFConfiguration(pFile, pNoSQLQuotes);
   }
 }

@@ -1,5 +1,8 @@
 package com.databasepreservation.modules.config;
 
+import static com.databasepreservation.modules.config.Normalize1NFConfiguration.NormalizedColumnType.ARRAY;
+import static com.databasepreservation.modules.config.Normalize1NFConfiguration.NormalizedColumnType.JSON;
+
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -25,12 +28,17 @@ import com.databasepreservation.utils.ModuleConfigurationUtils;
 public class Normalize1NFConfiguration extends ImportConfiguration {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(Normalize1NFConfiguration.class);
+
   private static final String DEFAULT_ARRAY_NAME_PATTERN = "${table}__${column}";
   private static final String DEFAULT_ARRAY_FOREIGN_KEY_COLUMN_PATTERN = "${table}_${column}";
   private static final String DEFAULT_ARRAY_DESCRIPTION_PATTERN = "Normalized array column ${table}.${column}";
   private static final String DEFAULT_ARRAY_INDEX_COLUMN_NAME_PATTERN = "array_index";
   private static final String DEFAULT_ARRAY_ITEM_COLUMN_NAME_PATTERN = "${column}_item";
   private static final String DEFAULT_ARRAY_TABLE_ALIAS = "a";
+
+  private static final String DEFAULT_JSON_NAME_PATTERN = DEFAULT_ARRAY_NAME_PATTERN;
+  private static final String DEFAULT_JSON_FOREIGN_KEY_COLUMN_PATTERN = DEFAULT_ARRAY_FOREIGN_KEY_COLUMN_PATTERN;
+  private static final String DEFAULT_JSON_DESCRIPTION_PATTERN = "Normalized JSON column ${table}.${column}";
 
   private String arrayNamePattern = DEFAULT_ARRAY_NAME_PATTERN;
   private String arrayForeignKeyColumnPattern = DEFAULT_ARRAY_FOREIGN_KEY_COLUMN_PATTERN;
@@ -39,8 +47,15 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
   private String arrayItemColumnNamePattern = DEFAULT_ARRAY_ITEM_COLUMN_NAME_PATTERN;
   private String arrayTableAlias = DEFAULT_ARRAY_TABLE_ALIAS;
 
-  public Normalize1NFConfiguration(Path outputFile) {
+  private String jsonNamePattern = DEFAULT_JSON_NAME_PATTERN;
+  private String jsonForeignKeyColumnPattern = DEFAULT_JSON_FOREIGN_KEY_COLUMN_PATTERN;
+  private String jsonDescriptionPattern = DEFAULT_JSON_DESCRIPTION_PATTERN;
+
+  private boolean noSQLQuotes;
+
+  public Normalize1NFConfiguration(Path outputFile, boolean noSQLQuotes) {
     super(outputFile);
+    this.noSQLQuotes = noSQLQuotes;
   }
 
   @Override
@@ -60,25 +75,33 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
     String schemaName = currentSchema.getName();
 
     for (ColumnStructure column : currentTable.getColumns()) {
-      if (!column.getType().getSql99TypeName().endsWith("ARRAY"))
+      boolean isArray = column.getType().getSql99TypeName().endsWith("ARRAY");
+      boolean isJson = column.getType().getOriginalTypeName().equalsIgnoreCase("json")
+        || column.getType().getOriginalTypeName().equalsIgnoreCase("jsonb");
+
+      if (!isArray && !isJson)
         continue;
 
+      NormalizedColumnType ncType = isArray ? ARRAY : JSON;
       String tableName = currentTable.getName();
       String columnName = column.getName();
       PrimaryKey primaryKey = currentTable.getPrimaryKey();
 
       if (primaryKey == null) {
-        LOGGER.warn("Table {}.{} has no primary key. Cannot create normalization of array column {}", schemaName,
+        LOGGER.warn("Table {}.{} has no primary key. Cannot create normalization of {} column {}", ncType, schemaName,
           tableName, columnName);
         continue;
       }
-      LOGGER.info("Creating normalization of array column {}.{}.{}", schemaName, tableName, columnName);
+      LOGGER.info("Creating normalization of {} column {}.{}.{}", ncType, schemaName, tableName, columnName);
 
-      String viewName = formatTblCol(arrayNamePattern, tableName, columnName);
-      String description = formatTblCol(arrayDescriptionPattern, tableName, columnName);
-      String query = getArrayNormalizationSQL(schemaName, tableName, columnName, primaryKey);
-      PrimaryKeyConfiguration primaryKeyConfiguration = getPrimaryKeyConfiguration(primaryKey, tableName, columnName);
-      ForeignKeyConfiguration foreignKeyConfiguration = getForeignKeyConfiguration(primaryKey, tableName);
+      String viewName = formatTblCol(ncType == ARRAY ? arrayNamePattern : jsonNamePattern, tableName, columnName);
+      String description = formatTblCol(ncType == ARRAY ? arrayDescriptionPattern : jsonDescriptionPattern, tableName,
+        columnName);
+      String query = ncType == ARRAY ? getArrayNormalizationSQL(schemaName, tableName, columnName, primaryKey)
+        : getJsonNormalizationSQL(schemaName, tableName, primaryKey);
+      PrimaryKeyConfiguration primaryKeyConfiguration = getPrimaryKeyConfiguration(ncType, primaryKey, tableName,
+        columnName);
+      ForeignKeyConfiguration foreignKeyConfiguration = getForeignKeyConfiguration(ncType, primaryKey, tableName);
 
       ModuleConfigurationUtils.addCustomViewConfiguration(moduleConfiguration, schemaName, viewName, true, description,
         query, primaryKeyConfiguration, Collections.singletonList(foreignKeyConfiguration));
@@ -96,8 +119,8 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
     return StringSubstitutor.replace(pattern, Map.of("table", tableName, "column", columnName));
   }
 
-  private static String quoteSQL(String sqlName) {
-    return '"' + sqlName + '"';
+  private String quoteSQL(String sqlName) {
+    return noSQLQuotes ? sqlName : '"' + sqlName + '"';
   }
 
   private String getArrayNormalizationSQL(String schemaName, String tableName, String columnName,
@@ -106,41 +129,73 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
     // Resulting SQL is only tested in PostgreSQL, but "UNNEST ... WITH ORDINALITY" should be standard SQL.
     String indexColumnName = formatTblCol(arrayIndexColumnNamePattern, tableName, columnName);
     String itemColumnName = formatTblCol(arrayItemColumnNamePattern, tableName, columnName);
-    String qSchemaName = quoteSQL(schemaName);
-    String qTableName = quoteSQL(tableName);
     String qColumnName = quoteSQL(columnName);
     String qIndexColumnName = quoteSQL(indexColumnName);
     String qItemColumnName = quoteSQL(itemColumnName);
 
-    StringBuilder sb = new StringBuilder("select ");
-    for (String pkColumnName : primaryKey.getColumnNames()) {
-      sb.append(pkColumnName).append(" as ")
-        .append(quoteSQL(formatTblCol(arrayForeignKeyColumnPattern, tableName, pkColumnName))).append(", ");
-    }
-
-    sb.append(qIndexColumnName).append(", ").append(qItemColumnName);
-    sb.append(" from ").append(qSchemaName).append(".").append(qTableName);
+    StringBuilder sb = getNormalizationSQLStringBuilder(ARRAY, tableName, primaryKey).append(", ")
+      .append(qIndexColumnName).append(", ").append(qItemColumnName).append(" ");
+    addNormalizationSQLFrom(sb, schemaName, tableName);
     sb.append(" cross join unnest(").append(qColumnName).append(") with ordinality as ");
     sb.append(arrayTableAlias).append("(").append(qItemColumnName).append(", ").append(qIndexColumnName).append(")");
 
     return sb.toString();
   }
 
-  private PrimaryKeyConfiguration getPrimaryKeyConfiguration(PrimaryKey primaryKey, String tableName,
+  private String getJsonNormalizationSQL(String schemaName, String tableName, PrimaryKey primaryKey) {
+    // Get a template only; do not attempt to calculate columns which would require processing all rows in the table.
+    StringBuilder sb = getNormalizationSQLStringBuilder(JSON, tableName, primaryKey).append(" ");
+    addNormalizationSQLFrom(sb, schemaName, tableName);
+
+    return sb.toString();
+  }
+
+  private StringBuilder getNormalizationSQLStringBuilder(NormalizedColumnType ncType, String tableName,
+    PrimaryKey primaryKey) {
+
+    StringBuilder sb = new StringBuilder("select");
+    boolean first = true;
+
+    for (String pkColumnName : primaryKey.getColumnNames()) {
+      sb.append(first ? " " : ", ").append(pkColumnName).append(" as ")
+        .append(quoteSQL(formatTblCol(ncType == ARRAY ? arrayForeignKeyColumnPattern : jsonForeignKeyColumnPattern,
+          tableName, pkColumnName)));
+      first = false;
+    }
+
+    return sb;
+  }
+
+  private StringBuilder addNormalizationSQLFrom(StringBuilder sb, String schemaName, String tableName) {
+    String qSchemaName = quoteSQL(schemaName);
+    String qTableName = quoteSQL(tableName);
+
+    sb.append("from ").append(qSchemaName).append(".").append(qTableName);
+
+    return sb;
+  }
+
+  private PrimaryKeyConfiguration getPrimaryKeyConfiguration(NormalizedColumnType ncType, PrimaryKey primaryKey,
+    String tableName,
     String columnName) {
     PrimaryKeyConfiguration primaryKeyConfiguration = new PrimaryKeyConfiguration();
     List<String> columnNames = new ArrayList<>(2);
 
     for (String pkColumnName : primaryKey.getColumnNames()) {
-      columnNames.add(formatTblCol(arrayForeignKeyColumnPattern, tableName, pkColumnName));
+      columnNames.add(formatTblCol(ncType == ARRAY ? arrayForeignKeyColumnPattern : jsonForeignKeyColumnPattern,
+        tableName, pkColumnName));
     }
-    columnNames.add(formatTblCol(arrayIndexColumnNamePattern, tableName, columnName));
+
+    if (ncType == ARRAY)
+      columnNames.add(formatTblCol(arrayIndexColumnNamePattern, tableName, columnName));
+
     primaryKeyConfiguration.setColumnNames(columnNames);
 
     return primaryKeyConfiguration;
   }
 
-  private ForeignKeyConfiguration getForeignKeyConfiguration(PrimaryKey primaryKey, String tableName) {
+  private ForeignKeyConfiguration getForeignKeyConfiguration(NormalizedColumnType ncType, PrimaryKey primaryKey,
+    String tableName) {
     ForeignKeyConfiguration foreignKeyConfiguration = new ForeignKeyConfiguration();
 
     foreignKeyConfiguration.setReferencedTable(tableName);
@@ -149,12 +204,17 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
 
     for (String pkColumnName : primaryKey.getColumnNames()) {
       ReferenceConfiguration ref = new ReferenceConfiguration();
-      ref.setColumn(formatTblCol(arrayForeignKeyColumnPattern, tableName, pkColumnName));
+      ref.setColumn(formatTblCol(ncType == ARRAY ? arrayForeignKeyColumnPattern : jsonForeignKeyColumnPattern,
+        tableName, pkColumnName));
       ref.setReferenced(pkColumnName);
       refererences.add(ref);
     }
     foreignKeyConfiguration.setReferences(refererences);
 
     return foreignKeyConfiguration;
+  }
+
+  enum NormalizedColumnType {
+    ARRAY, JSON
   }
 }
