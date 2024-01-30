@@ -11,12 +11,13 @@ import static java.util.stream.Collectors.toMap;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.List;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
 import com.databasepreservation.managers.ModuleConfigurationManager;
+import com.databasepreservation.model.exception.ModuleException;
 import com.databasepreservation.model.exception.UnsupportedModuleException;
 import com.databasepreservation.model.modules.DatabaseImportModule;
 import com.databasepreservation.model.modules.DatabaseModuleFactory;
@@ -37,10 +38,14 @@ import com.databasepreservation.utils.ModuleConfigurationUtils;
  */
 public class Normalize1NFConfigurationModuleFactory implements DatabaseModuleFactory {
   public static final String PARAMETER_FILE = "file";
+  public static final String MERGE_FILE = "merge-file";
   public static final String NO_SQL_QUOTES = "no-sql-quotes";
 
   private static final Parameter file = new Parameter().shortName("f").longName(PARAMETER_FILE)
     .description("Path to the import configuration file").hasArgument(true).setOptionalArgument(false).required(true);
+  private static final Parameter mergeFile = new Parameter().shortName("mf").longName(MERGE_FILE)
+    .description("Path a configuration file to merge with the output").hasArgument(true).setOptionalArgument(false)
+    .required(false);
   private static final Parameter noSQLQuotes = new Parameter().shortName("nqc").longName(NO_SQL_QUOTES)
     .description(
       "Don't quote SQL identifiers in normalization view queries (use if applicable to get more readable queries)")
@@ -68,7 +73,7 @@ public class Normalize1NFConfigurationModuleFactory implements DatabaseModuleFac
 
   @Override
   public Map<String, Parameter> getAllParameters() {
-    return Stream.of(file, noSQLQuotes).collect(toMap(Parameter::longName, Function.identity()));
+    return Stream.of(file, mergeFile, noSQLQuotes).collect(toMap(Parameter::longName, Function.identity()));
   }
 
   @Override
@@ -83,7 +88,7 @@ public class Normalize1NFConfigurationModuleFactory implements DatabaseModuleFac
 
   @Override
   public Parameters getExportModuleParameters() {
-    return new Parameters(List.of(file, noSQLQuotes), null);
+    return new Parameters(Arrays.asList(file, mergeFile, noSQLQuotes), null);
   }
 
   @Override
@@ -93,8 +98,10 @@ public class Normalize1NFConfigurationModuleFactory implements DatabaseModuleFac
   }
 
   @Override
-  public DatabaseFilterModule buildExportModule(Map<Parameter, String> parameters, Reporter reporter) {
+  public DatabaseFilterModule buildExportModule(Map<Parameter, String> parameters, Reporter reporter)
+    throws ModuleException {
     Path pFile = Paths.get(parameters.get(file));
+    Path pMergeFile = parameters.get(mergeFile) != null ? Paths.get(parameters.get(mergeFile)) : null;
     boolean pNoSQLQuotes = Boolean.parseBoolean(parameters.get(noSQLQuotes));
 
     reporter.exportModuleParameters(this.getModuleName(), PARAMETER_FILE,
@@ -109,6 +116,6 @@ public class Normalize1NFConfigurationModuleFactory implements DatabaseModuleFac
 
     reporter.exportModuleParameters(getModuleName(), PARAMETER_FILE, pFile.normalize().toAbsolutePath().toString());
 
-    return new Normalize1NFConfiguration(pFile, pNoSQLQuotes);
+    return new Normalize1NFConfiguration(pFile, pMergeFile, pNoSQLQuotes);
   }
 }

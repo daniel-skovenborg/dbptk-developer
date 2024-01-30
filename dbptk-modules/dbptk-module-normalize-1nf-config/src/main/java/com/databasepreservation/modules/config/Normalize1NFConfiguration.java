@@ -3,11 +3,11 @@ package com.databasepreservation.modules.config;
 import static com.databasepreservation.modules.config.Normalize1NFConfiguration.NormalizedColumnType.ARRAY;
 import static com.databasepreservation.modules.config.Normalize1NFConfiguration.NormalizedColumnType.JSON;
 
+import java.io.IOException;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.apache.commons.text.StringSubstitutor;
@@ -20,7 +20,10 @@ import com.databasepreservation.model.modules.configuration.*;
 import com.databasepreservation.model.modules.configuration.enums.DatabaseTechnicalFeatures;
 import com.databasepreservation.model.structure.ColumnStructure;
 import com.databasepreservation.model.structure.PrimaryKey;
+import com.databasepreservation.utils.MapUtils;
 import com.databasepreservation.utils.ModuleConfigurationUtils;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 /**
  * @author Daniel Lundsgaard Skovenborg <daniel.lundsgaard.skovenborg@stil.dk>
@@ -28,6 +31,9 @@ import com.databasepreservation.utils.ModuleConfigurationUtils;
 public class Normalize1NFConfiguration extends ImportConfiguration {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(Normalize1NFConfiguration.class);
+
+  private static final Pattern TABLE_NAME_REGEXP = Pattern
+    .compile("\\s(?:from|join)\\s+(\"[^\"]+\"|[^\\s.]+)\\s*\\.\\s*(\"[^\"]+\"|[^\\s.]+)");
 
   private static final String DEFAULT_ARRAY_NAME_PATTERN = "${table}__${column}";
   private static final String DEFAULT_ARRAY_FOREIGN_KEY_COLUMN_PATTERN = "${table}_${column}";
@@ -51,11 +57,26 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
   private String jsonForeignKeyColumnPattern = DEFAULT_JSON_FOREIGN_KEY_COLUMN_PATTERN;
   private String jsonDescriptionPattern = DEFAULT_JSON_DESCRIPTION_PATTERN;
 
-  private boolean noSQLQuotes;
+  private final ModuleConfiguration mergeConfiguration;
+  private final boolean noSQLQuotes;
 
-  public Normalize1NFConfiguration(Path outputFile, boolean noSQLQuotes) {
+  public Normalize1NFConfiguration(Path outputFile, Path mergeFile, boolean noSQLQuotes) throws ModuleException {
     super(outputFile);
     this.noSQLQuotes = noSQLQuotes;
+
+    if (mergeFile == null) {
+      // Create empty configuration so that we don't have to check for null everywhere.
+      this.mergeConfiguration = new ModuleConfiguration();
+    } else {
+      try {
+        ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
+        this.mergeConfiguration = mapper.readValue(mergeFile.toFile(), ModuleConfiguration.class);
+      } catch (IOException e) {
+        throw new ModuleException()
+          .withMessage("Could not read the merge configuration from file " + mergeFile.normalize().toAbsolutePath())
+          .withCause(e);
+      }
+    }
   }
 
   @Override
@@ -106,6 +127,8 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
       ModuleConfigurationUtils.addCustomViewConfiguration(moduleConfiguration, schemaName, viewName, true, description,
         query, primaryKeyConfiguration, Collections.singletonList(foreignKeyConfiguration));
 
+      mergeViewConfiguration(schemaName, viewName);
+
       // Remove normalized column from table configuration.
       // Assume no copy.
       TableConfiguration tableConfiguration = moduleConfiguration.getTableConfiguration(schemaName, tableName);
@@ -113,10 +136,86 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
         .filter(c -> !c.getName().equals(columnName)).collect(Collectors.toList());
       tableConfiguration.setColumns(newColumns);
     }
+
+    // TODO: add support for using merge configuration to add foreign keys to table,
+    // e.g., foreign key from an enum column to a code table constructed with a
+    // custom view in the merge configuration.
+  }
+
+  @Override
+  public void finishDatabase() throws ModuleException {
+    // Add all custom views from the merge configuration if not present.
+    moduleConfiguration.getSchemaConfigurations().forEach((schemaName, schemaConfiguration) -> {
+      List<CustomViewConfiguration> customViewConfigurations = schemaConfiguration.getCustomViewConfigurations();
+      SchemaConfiguration schemaToMerge = mergeConfiguration.getSchemaConfigurations().get(schemaName);
+      if (schemaToMerge == null)
+        return;
+
+      for (CustomViewConfiguration custom : schemaToMerge.getCustomViewConfigurations()) {
+        if (moduleConfiguration.getCustomViewConfiguration(schemaName, custom.getName()) == null
+          && validateCustomView(custom)) {
+          LOGGER.info("Adding custom view {}.{} from merge configuration file", schemaName, custom.getName());
+          customViewConfigurations.add(custom);
+        }
+      }
+      customViewConfigurations.sort(Comparator.comparing(CustomViewConfiguration::getName));
+    });
+
+    super.finishDatabase();
+  }
+
+  private boolean validateCustomView(CustomViewConfiguration custom) {
+    // Validate that the referenced tables exist in the schema. This is done to
+    // avoid merging remnants of older versions of the schema.
+    if (custom.getQuery() == null) {
+      LOGGER.warn("Missing query in custom view {}", custom.getName());
+      return false;
+    }
+
+    boolean valid = true;
+    Matcher m = TABLE_NAME_REGEXP.matcher(custom.getQuery());
+    while (m.find()) {
+      String schemaName = m.group(1);
+      String tableName = m.group(2);
+      if (moduleConfiguration.getTableConfiguration(schemaName, tableName) == null) {
+        LOGGER.warn("Custom view {} references non-existing table {}.{}", custom.getName(), schemaName, tableName);
+        valid = false;
+      }
+    }
+
+    return valid;
+  }
+
+  private void mergeViewConfiguration(String schemaName, String viewName) {
+    CustomViewConfiguration merge = mergeConfiguration.getCustomViewConfiguration(schemaName, viewName);
+    if (merge == null)
+      return;
+
+    LOGGER.info("Merging configuration of custom view {}.{}", schemaName, viewName);
+
+    // Assume no copy on getters.
+    // Allow setting description and columns, overriding query and primary key, and
+    // adding foreign keys.
+    CustomViewConfiguration view = moduleConfiguration.getCustomViewConfiguration(schemaName, viewName);
+    if (merge.getDescription() != null) {
+      view.setDescription(merge.getDescription());
+    }
+    if (merge.getQuery() != null) {
+      view.setQuery(merge.getQuery());
+    }
+    if (merge.getColumns() != null) {
+      view.setColumns(merge.getColumns());
+    }
+    if (merge.getPrimaryKey() != null) {
+      view.setPrimaryKey(merge.getPrimaryKey());
+    }
+    if (merge.getForeignKeys() != null) {
+      view.getForeignKeys().addAll(merge.getForeignKeys());
+    }
   }
 
   private static String formatTblCol(String pattern, String tableName, String columnName) {
-    return StringSubstitutor.replace(pattern, Map.of("table", tableName, "column", columnName));
+    return StringSubstitutor.replace(pattern, MapUtils.buildMapFromObjects("table", tableName, "column", columnName));
   }
 
   private String quoteSQL(String sqlName) {

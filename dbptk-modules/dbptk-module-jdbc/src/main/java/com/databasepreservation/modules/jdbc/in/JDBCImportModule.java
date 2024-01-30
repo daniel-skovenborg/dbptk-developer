@@ -881,7 +881,9 @@ public class JDBCImportModule implements DatabaseImportModule {
     String viewName = custom.getName();
     String description = custom.getDescription();
     String query = custom.getQuery();
-    PrimaryKey primaryKey = getPrimaryKeyConfigurationAsPrimaryKey(custom.getPrimaryKey(), viewName);
+    PrimaryKey primaryKey = custom.getPrimaryKey() != null
+      ? getPrimaryKeyConfigurationAsPrimaryKey(custom.getPrimaryKey(), viewName)
+      : null;
 
     String name = (custom.isSimulateTable() ? "" : CUSTOM_VIEW_NAME_PREFIX) + viewName;
 
