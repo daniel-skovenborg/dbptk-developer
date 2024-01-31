@@ -41,7 +41,6 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
 
   private static final String DEFAULT_JSON_NAME_PATTERN = DEFAULT_ARRAY_NAME_PATTERN;
   private static final String DEFAULT_JSON_FOREIGN_KEY_COLUMN_PATTERN = DEFAULT_ARRAY_FOREIGN_KEY_COLUMN_PATTERN;
-  private static final String DEFAULT_JSON_DESCRIPTION_PATTERN = "Normalized JSON column ${table}.${column}.";
 
   // TODO: Allow overriding all patterns.
   private String arrayNamePattern = DEFAULT_ARRAY_NAME_PATTERN;
@@ -53,16 +52,18 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
 
   private String jsonNamePattern = DEFAULT_JSON_NAME_PATTERN;
   private String jsonForeignKeyColumnPattern = DEFAULT_JSON_FOREIGN_KEY_COLUMN_PATTERN;
-  private String jsonDescriptionPattern = DEFAULT_JSON_DESCRIPTION_PATTERN;
+  private String jsonDescriptionPattern;
 
   private final ModuleConfiguration mergeConfiguration;
   private final boolean noSQLQuotes;
 
-  public Normalize1NFConfiguration(Path outputFile, Path mergeFile, boolean noSQLQuotes, String arrayDescriptionPattern)
+  public Normalize1NFConfiguration(Path outputFile, Path mergeFile, boolean noSQLQuotes, String arrayDescriptionPattern,
+    String jsonDescriptionPattern)
     throws ModuleException {
     super(outputFile);
     this.noSQLQuotes = noSQLQuotes;
     this.arrayDescriptionPattern = arrayDescriptionPattern;
+    this.jsonDescriptionPattern = jsonDescriptionPattern;
 
     if (mergeFile == null) {
       // Create empty configuration so that we don't have to check for null everywhere.

@@ -41,8 +41,10 @@ public class Normalize1NFConfigurationModuleFactory implements DatabaseModuleFac
   public static final String MERGE_FILE = "merge-file";
   public static final String NO_SQL_QUOTES = "no-sql-quotes";
   public static final String ARRAY_DESCRIPTION_PATTERN = "pattern-array-description";
+  public static final String JSON_DESCRIPTION_PATTERN = "pattern-json-description";
 
   private static final String DEFAULT_ARRAY_DESCRIPTION_PATTERN = "Normalized array column ${table}.${column}";
+  private static final String DEFAULT_JSON_DESCRIPTION_PATTERN = "Normalized JSON column ${table}.${column}.";
 
   private static final Parameter file = new Parameter().shortName("f").longName(PARAMETER_FILE)
     .description("Path to the import configuration file").hasArgument(true).setOptionalArgument(false).required(true);
@@ -59,9 +61,13 @@ public class Normalize1NFConfigurationModuleFactory implements DatabaseModuleFac
     .longName(ARRAY_DESCRIPTION_PATTERN)
     .description(withDefault("Pattern for description of normalized array columns.", DEFAULT_ARRAY_DESCRIPTION_PATTERN))
     .hasArgument(true).setOptionalArgument(false).required(false).valueIfNotSet(DEFAULT_ARRAY_DESCRIPTION_PATTERN);
+  private static final Parameter jsonDescriptionPattern = new Parameter().shortName("pjd")
+    .longName(JSON_DESCRIPTION_PATTERN)
+    .description(withDefault("Pattern for description of normalized JSON columns.", DEFAULT_JSON_DESCRIPTION_PATTERN))
+    .hasArgument(true).setOptionalArgument(false).required(false).valueIfNotSet(DEFAULT_JSON_DESCRIPTION_PATTERN);
 
   private static final List<Parameter> parameters = Arrays.asList(file, mergeFile, noSQLQuotes,
-    arrayDescriptionPattern);
+    arrayDescriptionPattern, jsonDescriptionPattern);
 
   private static String withDefault(String description, String defaultValue) {
     return String.format("%s Default: \"%s\"", description, defaultValue);
@@ -132,6 +138,7 @@ public class Normalize1NFConfigurationModuleFactory implements DatabaseModuleFac
 
     reporter.exportModuleParameters(getModuleName(), PARAMETER_FILE, pFile.normalize().toAbsolutePath().toString());
 
-    return new Normalize1NFConfiguration(pFile, pMergeFile, pNoSQLQuotes, parameters.get(arrayDescriptionPattern));
+    return new Normalize1NFConfiguration(pFile, pMergeFile, pNoSQLQuotes, parameters.get(arrayDescriptionPattern),
+      parameters.get(jsonDescriptionPattern));
   }
 }
