@@ -35,18 +35,18 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
   private static final String EXCLUDE_CUSTOM_VIEW_QUERY = "";
   private static final String DEFAULT_ARRAY_NAME_PATTERN = "${table}__${column}";
   private static final String DEFAULT_ARRAY_FOREIGN_KEY_COLUMN_PATTERN = "${table}_${column}";
-  private static final String DEFAULT_ARRAY_DESCRIPTION_PATTERN = "Normalized array column ${table}.${column}";
   private static final String DEFAULT_ARRAY_INDEX_COLUMN_NAME_PATTERN = "array_index";
   private static final String DEFAULT_ARRAY_ITEM_COLUMN_NAME_PATTERN = "${column}_item";
   private static final String DEFAULT_ARRAY_TABLE_ALIAS = "a";
 
   private static final String DEFAULT_JSON_NAME_PATTERN = DEFAULT_ARRAY_NAME_PATTERN;
   private static final String DEFAULT_JSON_FOREIGN_KEY_COLUMN_PATTERN = DEFAULT_ARRAY_FOREIGN_KEY_COLUMN_PATTERN;
-  private static final String DEFAULT_JSON_DESCRIPTION_PATTERN = "Normalized JSON column ${table}.${column}";
+  private static final String DEFAULT_JSON_DESCRIPTION_PATTERN = "Normalized JSON column ${table}.${column}.";
 
+  // TODO: Allow overriding all patterns.
   private String arrayNamePattern = DEFAULT_ARRAY_NAME_PATTERN;
   private String arrayForeignKeyColumnPattern = DEFAULT_ARRAY_FOREIGN_KEY_COLUMN_PATTERN;
-  private String arrayDescriptionPattern = DEFAULT_ARRAY_DESCRIPTION_PATTERN;
+  private String arrayDescriptionPattern;
   private String arrayIndexColumnNamePattern = DEFAULT_ARRAY_INDEX_COLUMN_NAME_PATTERN;
   private String arrayItemColumnNamePattern = DEFAULT_ARRAY_ITEM_COLUMN_NAME_PATTERN;
   private String arrayTableAlias = DEFAULT_ARRAY_TABLE_ALIAS;
@@ -58,9 +58,11 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
   private final ModuleConfiguration mergeConfiguration;
   private final boolean noSQLQuotes;
 
-  public Normalize1NFConfiguration(Path outputFile, Path mergeFile, boolean noSQLQuotes) throws ModuleException {
+  public Normalize1NFConfiguration(Path outputFile, Path mergeFile, boolean noSQLQuotes, String arrayDescriptionPattern)
+    throws ModuleException {
     super(outputFile);
     this.noSQLQuotes = noSQLQuotes;
+    this.arrayDescriptionPattern = arrayDescriptionPattern;
 
     if (mergeFile == null) {
       // Create empty configuration so that we don't have to check for null everywhere.

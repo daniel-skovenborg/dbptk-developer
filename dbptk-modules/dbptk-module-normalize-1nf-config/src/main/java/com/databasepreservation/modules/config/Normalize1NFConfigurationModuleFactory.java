@@ -12,9 +12,9 @@ import static java.util.stream.Collectors.toMap;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
-import java.util.stream.Stream;
 
 import com.databasepreservation.managers.ModuleConfigurationManager;
 import com.databasepreservation.model.exception.ModuleException;
@@ -40,6 +40,9 @@ public class Normalize1NFConfigurationModuleFactory implements DatabaseModuleFac
   public static final String PARAMETER_FILE = "file";
   public static final String MERGE_FILE = "merge-file";
   public static final String NO_SQL_QUOTES = "no-sql-quotes";
+  public static final String ARRAY_DESCRIPTION_PATTERN = "pattern-array-description";
+
+  private static final String DEFAULT_ARRAY_DESCRIPTION_PATTERN = "Normalized array column ${table}.${column}";
 
   private static final Parameter file = new Parameter().shortName("f").longName(PARAMETER_FILE)
     .description("Path to the import configuration file").hasArgument(true).setOptionalArgument(false).required(true);
@@ -50,6 +53,19 @@ public class Normalize1NFConfigurationModuleFactory implements DatabaseModuleFac
     .description(
       "Don't quote SQL identifiers in normalization view queries (use if applicable to get more readable queries)")
     .hasArgument(false).required(false).valueIfNotSet("false").valueIfSet("true");
+
+  // TODO: Allow overriding all patterns.
+  private static final Parameter arrayDescriptionPattern = new Parameter().shortName("pad")
+    .longName(ARRAY_DESCRIPTION_PATTERN)
+    .description(withDefault("Pattern for description of normalized array columns.", DEFAULT_ARRAY_DESCRIPTION_PATTERN))
+    .hasArgument(true).setOptionalArgument(false).required(false).valueIfNotSet(DEFAULT_ARRAY_DESCRIPTION_PATTERN);
+
+  private static final List<Parameter> parameters = Arrays.asList(file, mergeFile, noSQLQuotes,
+    arrayDescriptionPattern);
+
+  private static String withDefault(String description, String defaultValue) {
+    return String.format("%s Default: \"%s\"", description, defaultValue);
+  }
 
   @Override
   public boolean producesImportModules() {
@@ -73,7 +89,7 @@ public class Normalize1NFConfigurationModuleFactory implements DatabaseModuleFac
 
   @Override
   public Map<String, Parameter> getAllParameters() {
-    return Stream.of(file, mergeFile, noSQLQuotes).collect(toMap(Parameter::longName, Function.identity()));
+    return parameters.stream().collect(toMap(Parameter::longName, Function.identity()));
   }
 
   @Override
@@ -88,7 +104,7 @@ public class Normalize1NFConfigurationModuleFactory implements DatabaseModuleFac
 
   @Override
   public Parameters getExportModuleParameters() {
-    return new Parameters(Arrays.asList(file, mergeFile, noSQLQuotes), null);
+    return new Parameters(parameters, null);
   }
 
   @Override
@@ -116,6 +132,6 @@ public class Normalize1NFConfigurationModuleFactory implements DatabaseModuleFac
 
     reporter.exportModuleParameters(getModuleName(), PARAMETER_FILE, pFile.normalize().toAbsolutePath().toString());
 
-    return new Normalize1NFConfiguration(pFile, pMergeFile, pNoSQLQuotes);
+    return new Normalize1NFConfiguration(pFile, pMergeFile, pNoSQLQuotes, parameters.get(arrayDescriptionPattern));
   }
 }
