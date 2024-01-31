@@ -6,8 +6,6 @@ import static com.databasepreservation.modules.config.Normalize1NFConfiguration.
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.apache.commons.text.StringSubstitutor;
@@ -32,9 +30,9 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(Normalize1NFConfiguration.class);
 
-  private static final Pattern TABLE_NAME_REGEXP = Pattern
-    .compile("\\s(?:from|join)\\s+(\"[^\"]+\"|[^\\s.]+)\\s*\\.\\s*(\"[^\"]+\"|[^\\s.]+)");
-
+  // Value to use for query in merge file to exclude from normalization view
+  // creation.
+  private static final String EXCLUDE_CUSTOM_VIEW_QUERY = "";
   private static final String DEFAULT_ARRAY_NAME_PATTERN = "${table}__${column}";
   private static final String DEFAULT_ARRAY_FOREIGN_KEY_COLUMN_PATTERN = "${table}_${column}";
   private static final String DEFAULT_ARRAY_DESCRIPTION_PATTERN = "Normalized array column ${table}.${column}";
@@ -66,11 +64,11 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
 
     if (mergeFile == null) {
       // Create empty configuration so that we don't have to check for null everywhere.
-      this.mergeConfiguration = new ModuleConfiguration();
+      mergeConfiguration = new ModuleConfiguration();
     } else {
       try {
         ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
-        this.mergeConfiguration = mapper.readValue(mergeFile.toFile(), ModuleConfiguration.class);
+        mergeConfiguration = mapper.readValue(mergeFile.toFile(), ModuleConfiguration.class);
       } catch (IOException e) {
         throw new ModuleException()
           .withMessage("Could not read the merge configuration from file " + mergeFile.normalize().toAbsolutePath())
@@ -93,97 +91,100 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
   public void handleDataOpenTable(String tableId) throws ModuleException {
     super.handleDataOpenTable(tableId);
 
-    String schemaName = currentSchema.getName();
-
-    for (ColumnStructure column : currentTable.getColumns()) {
-      boolean isArray = column.getType().getSql99TypeName().endsWith("ARRAY");
-      boolean isJson = column.getType().getOriginalTypeName().equalsIgnoreCase("json")
-        || column.getType().getOriginalTypeName().equalsIgnoreCase("jsonb");
-
-      if (!isArray && !isJson)
-        continue;
-
-      NormalizedColumnType ncType = isArray ? ARRAY : JSON;
-      String tableName = currentTable.getName();
-      String columnName = column.getName();
-      PrimaryKey primaryKey = currentTable.getPrimaryKey();
-
-      if (primaryKey == null) {
-        LOGGER.warn("Table {}.{} has no primary key. Cannot create normalization of {} column {}", ncType, schemaName,
-          tableName, columnName);
-        continue;
-      }
-      LOGGER.info("Creating normalization of {} column {}.{}.{}", ncType, schemaName, tableName, columnName);
-
-      String viewName = formatTblCol(ncType == ARRAY ? arrayNamePattern : jsonNamePattern, tableName, columnName);
-      String description = formatTblCol(ncType == ARRAY ? arrayDescriptionPattern : jsonDescriptionPattern, tableName,
-        columnName);
-      String query = ncType == ARRAY ? getArrayNormalizationSQL(schemaName, tableName, columnName, primaryKey)
-        : getJsonNormalizationSQL(schemaName, tableName, primaryKey);
-      PrimaryKeyConfiguration primaryKeyConfiguration = getPrimaryKeyConfiguration(ncType, primaryKey, tableName,
-        columnName);
-      ForeignKeyConfiguration foreignKeyConfiguration = getForeignKeyConfiguration(ncType, primaryKey, tableName);
-
-      ModuleConfigurationUtils.addCustomViewConfiguration(moduleConfiguration, schemaName, viewName, true, description,
-        query, primaryKeyConfiguration, Collections.singletonList(foreignKeyConfiguration));
-
-      mergeViewConfiguration(schemaName, viewName);
-
-      // Remove normalized column from table configuration.
-      // Assume no copy.
-      TableConfiguration tableConfiguration = moduleConfiguration.getTableConfiguration(schemaName, tableName);
-      List<ColumnConfiguration> newColumns = tableConfiguration.getColumns().stream()
-        .filter(c -> !c.getName().equals(columnName)).collect(Collectors.toList());
-      tableConfiguration.setColumns(newColumns);
-    }
+    currentTable.getColumns().forEach(this::handleColumn);
 
     // TODO: add support for using merge configuration to add foreign keys to table,
     // e.g., foreign key from an enum column to a code table constructed with a
     // custom view in the merge configuration.
   }
 
+  private void handleColumn(ColumnStructure column) {
+
+    boolean isArray = column.getType().getSql99TypeName().endsWith("ARRAY");
+    boolean isJson = column.getType().getOriginalTypeName().equalsIgnoreCase("json")
+      || column.getType().getOriginalTypeName().equalsIgnoreCase("jsonb");
+
+    if (!isArray && !isJson)
+      return;
+
+    String schemaName = currentSchema.getName();
+    String tableName = currentTable.getName();
+
+    NormalizedColumnType ncType = isArray ? ARRAY : JSON;
+    String columnName = column.getName();
+    String viewName = formatTblCol(ncType == ARRAY ? arrayNamePattern : jsonNamePattern, tableName, columnName);
+
+    // Remove normalized column from table configuration.
+    removeColumnFromConfiguration(schemaName, tableName, columnName);
+
+    // Allow overriding creation of view (e.g., if making a manual normalization).
+    CustomViewConfiguration merge = mergeConfiguration.getCustomViewConfiguration(schemaName, viewName);
+    if (merge != null && EXCLUDE_CUSTOM_VIEW_QUERY.equals(merge.getQuery())) {
+      LOGGER.info("Normalization of {}.{}.{} ({}) is excluded by merge file", schemaName, tableName, columnName,
+        viewName);
+      return;
+    }
+
+    addNormalizationViewConfiguration(ncType, schemaName, tableName, columnName, viewName);
+    mergeViewConfiguration(schemaName, viewName);
+  }
+
+  private void removeColumnFromConfiguration(String schemaName, String tableName, String columnName) {
+    // Assume no copy.
+    LOGGER.info("Removing non-1NF column {}.{}.{} from configuration", schemaName, tableName, columnName);
+    TableConfiguration tableConfiguration = moduleConfiguration.getTableConfiguration(schemaName, tableName);
+    List<ColumnConfiguration> newColumns = tableConfiguration.getColumns().stream()
+      .filter(c -> !c.getName().equals(columnName)).collect(Collectors.toList());
+    tableConfiguration.setColumns(newColumns);
+  }
+
+  private void addNormalizationViewConfiguration(NormalizedColumnType ncType, String schemaName, String tableName,
+    String columnName, String viewName) {
+
+    PrimaryKey primaryKey = currentTable.getPrimaryKey();
+
+    if (primaryKey == null) {
+      LOGGER.warn("Table {}.{} has no primary key. Cannot create normalization of {} column {}", ncType, schemaName,
+        tableName, columnName);
+      return;
+    }
+
+    LOGGER.info("Creating normalization view of {} column {}.{}.{}", ncType, schemaName, tableName, columnName);
+
+    String description = formatTblCol(ncType == ARRAY ? arrayDescriptionPattern : jsonDescriptionPattern, tableName,
+      columnName);
+    String query = ncType == ARRAY ? getArrayNormalizationSQL(schemaName, tableName, columnName, primaryKey)
+      : getJsonNormalizationSQL(schemaName, tableName, primaryKey);
+    PrimaryKeyConfiguration primaryKeyConfiguration = getPrimaryKeyConfiguration(ncType, primaryKey, tableName,
+      columnName);
+    ForeignKeyConfiguration foreignKeyConfiguration = getForeignKeyConfiguration(ncType, primaryKey, tableName);
+
+    ModuleConfigurationUtils.addCustomViewConfiguration(moduleConfiguration, schemaName, viewName, true, description,
+      query, primaryKeyConfiguration, Collections.singletonList(foreignKeyConfiguration));
+  }
+
   @Override
   public void finishDatabase() throws ModuleException {
     // Add all custom views from the merge configuration if not present.
     moduleConfiguration.getSchemaConfigurations().forEach((schemaName, schemaConfiguration) -> {
-      List<CustomViewConfiguration> customViewConfigurations = schemaConfiguration.getCustomViewConfigurations();
       SchemaConfiguration schemaToMerge = mergeConfiguration.getSchemaConfigurations().get(schemaName);
       if (schemaToMerge == null)
         return;
 
+      List<CustomViewConfiguration> customViewConfigurations = schemaConfiguration.getCustomViewConfigurations();
+
       for (CustomViewConfiguration custom : schemaToMerge.getCustomViewConfigurations()) {
-        if (moduleConfiguration.getCustomViewConfiguration(schemaName, custom.getName()) == null
-          && validateCustomView(custom)) {
+        if (!EXCLUDE_CUSTOM_VIEW_QUERY.equals(custom.getQuery())
+          && moduleConfiguration.getCustomViewConfiguration(schemaName, custom.getName()) == null) {
           LOGGER.info("Adding custom view {}.{} from merge configuration file", schemaName, custom.getName());
           customViewConfigurations.add(custom);
         }
       }
+
       customViewConfigurations.sort(Comparator.comparing(CustomViewConfiguration::getName));
     });
 
     super.finishDatabase();
-  }
-
-  private boolean validateCustomView(CustomViewConfiguration custom) {
-    // Validate that the referenced tables exist in the schema. This is done to
-    // avoid merging remnants of older versions of the schema.
-    if (custom.getQuery() == null) {
-      LOGGER.warn("Missing query in custom view {}", custom.getName());
-      return false;
-    }
-
-    boolean valid = true;
-    Matcher m = TABLE_NAME_REGEXP.matcher(custom.getQuery());
-    while (m.find()) {
-      String schemaName = m.group(1);
-      String tableName = m.group(2);
-      if (moduleConfiguration.getTableConfiguration(schemaName, tableName) == null) {
-        LOGGER.warn("Custom view {} references non-existing table {}.{}", custom.getName(), schemaName, tableName);
-        valid = false;
-      }
-    }
-
-    return valid;
   }
 
   private void mergeViewConfiguration(String schemaName, String viewName) {
@@ -234,9 +235,9 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
 
     StringBuilder sb = getNormalizationSQLStringBuilder(ARRAY, tableName, primaryKey).append(", ")
       .append(qIndexColumnName).append(", ").append(qItemColumnName).append(" ");
-    addNormalizationSQLFrom(sb, schemaName, tableName);
-    sb.append(" cross join unnest(").append(qColumnName).append(") with ordinality as ");
-    sb.append(arrayTableAlias).append("(").append(qItemColumnName).append(", ").append(qIndexColumnName).append(")");
+    addNormalizationSQLFrom(sb, schemaName, tableName) //
+      .append(" cross join unnest(").append(qColumnName).append(") with ordinality as ") //
+      .append(arrayTableAlias).append("(").append(qItemColumnName).append(", ").append(qIndexColumnName).append(")");
 
     return sb.toString();
   }
