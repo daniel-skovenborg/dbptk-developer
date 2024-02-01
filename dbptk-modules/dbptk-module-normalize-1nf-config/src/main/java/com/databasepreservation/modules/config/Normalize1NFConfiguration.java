@@ -129,7 +129,7 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
     }
 
     addNormalizationViewConfiguration(ncType, schemaName, tableName, columnName, viewName);
-    mergeViewConfiguration(schemaName, viewName);
+    mergeCustomViewConfiguration(schemaName, viewName);
   }
 
   private void removeColumnFromConfiguration(String schemaName, String tableName, String columnName) {
@@ -190,7 +190,7 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
     super.finishDatabase();
   }
 
-  private void mergeViewConfiguration(String schemaName, String viewName) {
+  private void mergeCustomViewConfiguration(String schemaName, String viewName) {
     CustomViewConfiguration merge = mergeConfiguration.getCustomViewConfiguration(schemaName, viewName);
     if (merge == null)
       return;

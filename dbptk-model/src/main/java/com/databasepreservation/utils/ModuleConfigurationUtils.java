@@ -9,10 +9,7 @@ package com.databasepreservation.utils;
 
 import static com.databasepreservation.model.modules.configuration.enums.DatabaseTechnicalFeatures.*;
 
-import java.util.Arrays;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 import com.databasepreservation.model.modules.configuration.*;
 import com.databasepreservation.model.modules.configuration.enums.DatabaseTechnicalFeatures;
@@ -53,7 +50,7 @@ public class ModuleConfigurationUtils {
     customViewConfiguration.setDescription(description);
     customViewConfiguration.setQuery(query);
     customViewConfiguration.setPrimaryKey(primaryKey);
-    customViewConfiguration.setForeignKeys(foreignKeys);
+    customViewConfiguration.setForeignKeys(new ArrayList<>(foreignKeys)); // Ensure that items can be added.
 
     schemaConfiguration.getCustomViewConfigurations().add(customViewConfiguration);
     moduleConfiguration.getSchemaConfigurations().put(schemaName, schemaConfiguration);
