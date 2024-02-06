@@ -19,7 +19,7 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 /**
  * @author Miguel Guimarães <mguimaraes@keep.pt>
  */
-@JsonPropertyOrder({"name", "simulateTable", "description", "query", "primaryKey", "foreignKeys"})
+@JsonPropertyOrder({"name", "simulateTable", "description", "query", "primaryKey", "foreignKeys", "columns"})
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class CustomViewConfiguration {
 
@@ -78,7 +78,6 @@ public class CustomViewConfiguration {
     this.query = query;
   }
 
-  @JsonIgnore
   public List<ColumnConfiguration> getColumns() {
     return columns;
   }
