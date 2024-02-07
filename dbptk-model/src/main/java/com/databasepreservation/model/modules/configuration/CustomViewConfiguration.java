@@ -12,14 +12,13 @@ import java.util.List;
 import java.util.Objects;
 
 import com.databasepreservation.Constants;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
 /**
  * @author Miguel Guimarães <mguimaraes@keep.pt>
  */
-@JsonPropertyOrder({"name", "simulateTable", "description", "query", "primaryKey", "foreignKeys", "columns"})
+@JsonPropertyOrder({"name", "simulateTable", "description", "query", "columns", "primaryKey", "foreignKeys"})
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class CustomViewConfiguration {
 
@@ -27,7 +26,7 @@ public class CustomViewConfiguration {
   private boolean simulateTable = false;
   private String description;
   private String query;
-  private List<ColumnConfiguration> columns;
+  private List<CustomColumnConfiguration> columns;
   private PrimaryKeyConfiguration primaryKey;
   private List<ForeignKeyConfiguration> foreignKeys;
 
@@ -36,6 +35,7 @@ public class CustomViewConfiguration {
     columns = new ArrayList<>();
     description = Constants.EMPTY;
     query = Constants.EMPTY;
+    foreignKeys = new ArrayList<>();
   }
 
   public String getName() {
@@ -78,11 +78,11 @@ public class CustomViewConfiguration {
     this.query = query;
   }
 
-  public List<ColumnConfiguration> getColumns() {
+  public List<CustomColumnConfiguration> getColumns() {
     return columns;
   }
 
-  public void setColumns(List<ColumnConfiguration> columns) {
+  public void setColumns(List<CustomColumnConfiguration> columns) {
     this.columns = columns;
   }
 

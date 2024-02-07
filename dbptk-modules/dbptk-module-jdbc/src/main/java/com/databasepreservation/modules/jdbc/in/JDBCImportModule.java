@@ -21,6 +21,7 @@ import java.sql.*;
 import java.sql.Date;
 import java.time.OffsetDateTime;
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.ArrayUtils;
@@ -714,7 +715,8 @@ public class JDBCImportModule implements DatabaseImportModule {
         view.setQueryOriginal(custom.getQuery());
 
         try {
-          view.setColumns(getColumnsFromCustomView(custom.getName(), custom.getQuery(), custom.getPrimaryKey()));
+          // Don't set primary key on views (this makes only sense in as-table context)
+          view.setColumns(getColumnsFromCustomView(custom.getName(), custom.getQuery(), null, null));
         } catch (SQLException e) {
           reporter.ignored("Columns from custom view " + custom.getName() + " in schema " + schemaName,
             "there was a problem retrieving them form the database");
@@ -894,7 +896,7 @@ public class JDBCImportModule implements DatabaseImportModule {
     view.setIndex(tableIndex);
     view.setDescription(description);
 
-    view.setColumns(getColumnsFromCustomView(viewName, query, custom.getPrimaryKey()));
+    view.setColumns(getColumnsFromCustomView(viewName, query, custom.getPrimaryKey(), custom.getColumns()));
     view.setPrimaryKey(primaryKey);
     view.setForeignKeys(custom.getForeignKeys() == null ? new ArrayList<>()
       : custom.getForeignKeys().stream().map(c -> getForeignKeyConfigurationAsForeignKey(c, name))
@@ -1155,8 +1157,13 @@ public class JDBCImportModule implements DatabaseImportModule {
   }
 
   protected List<ColumnStructure> getColumnsFromCustomView(String viewName, String query,
-    PrimaryKeyConfiguration primaryKey)
+    PrimaryKeyConfiguration primaryKey, List<CustomColumnConfiguration> columnConfigurations)
     throws ModuleException, SQLException {
+
+    Map<String, CustomColumnConfiguration> columnConfigurationMap = columnConfigurations != null
+      ? columnConfigurations.stream().collect(Collectors.toMap(CustomColumnConfiguration::getName, Function.identity()))
+      : Collections.emptyMap();
+
     List<ColumnStructure> columns = new ArrayList<>();
 
     try (PreparedStatement preparedStatement = getConnection().prepareStatement(query)) {
@@ -1170,13 +1177,17 @@ public class JDBCImportModule implements DatabaseImportModule {
         String columnTypeName = metaData.getColumnTypeName(i);
         int columnDisplaySize = metaData.getColumnDisplaySize(i);
         int precision = metaData.getPrecision(i);
-        boolean nillable = primaryKey == null || !primaryKey.getColumnNames().contains(columnName);
+        CustomColumnConfiguration columnConfiguration = columnConfigurationMap.get(columnName);
+        boolean nillable = (primaryKey == null || !primaryKey.getColumnNames().contains(columnName))
+          && (columnConfiguration == null || columnConfiguration.getNillable() == null
+            || columnConfiguration.getNillable());
+        String description = columnConfiguration != null ? columnConfiguration.getDescription() : "";
 
         Type checkedType = datatypeImporter.getCheckedType(dbStructure, actualSchema, tableName, columnName, columnType,
           columnTypeName, columnDisplaySize, precision, 10);
 
-        ColumnStructure column = new ColumnStructure(viewName + "." + columnName, columnName, checkedType, nillable, "",
-          "", false);
+        ColumnStructure column = new ColumnStructure(viewName + "." + columnName, columnName, checkedType, nillable,
+          description, "", false);
 
         columns.add(column);
       }

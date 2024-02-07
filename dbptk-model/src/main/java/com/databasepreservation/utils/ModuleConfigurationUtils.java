@@ -36,8 +36,8 @@ public class ModuleConfigurationUtils {
   }
 
   public static void addCustomViewConfiguration(ModuleConfiguration moduleConfiguration, String schemaName, String name,
-    boolean simulateTable, String description, String query, PrimaryKeyConfiguration primaryKey,
-    List<ForeignKeyConfiguration> foreignKeys) {
+    boolean simulateTable, String description, String query, List<CustomColumnConfiguration> columns,
+    PrimaryKeyConfiguration primaryKey, List<ForeignKeyConfiguration> foreignKeys) {
 
     SchemaConfiguration schemaConfiguration = moduleConfiguration.getSchemaConfigurations().get(schemaName);
     if (schemaConfiguration == null) {
@@ -49,6 +49,7 @@ public class ModuleConfigurationUtils {
     customViewConfiguration.setSimulateTable(simulateTable);
     customViewConfiguration.setDescription(description);
     customViewConfiguration.setQuery(query);
+    customViewConfiguration.setColumns(columns);
     customViewConfiguration.setPrimaryKey(primaryKey);
     customViewConfiguration.setForeignKeys(new ArrayList<>(foreignKeys)); // Ensure that items can be added.
 

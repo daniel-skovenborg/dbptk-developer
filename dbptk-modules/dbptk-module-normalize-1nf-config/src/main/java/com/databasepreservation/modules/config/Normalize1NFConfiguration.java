@@ -12,6 +12,7 @@ import org.apache.commons.text.StringSubstitutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.databasepreservation.Constants;
 import com.databasepreservation.managers.ModuleConfigurationManager;
 import com.databasepreservation.model.exception.ModuleException;
 import com.databasepreservation.model.modules.configuration.*;
@@ -31,8 +32,10 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
   private static final Logger LOGGER = LoggerFactory.getLogger(Normalize1NFConfiguration.class);
 
   // Value to use for query in merge file to exclude from normalization view
-  // creation.
-  private static final String EXCLUDE_CUSTOM_VIEW_QUERY = "";
+  // creation. Empty string will not work because Constants.EMPTY will be assigned
+  // if "query" key is left out to
+  // override other fields.
+  private static final String EXCLUDE_CUSTOM_VIEW_QUERY = "--"; //
   private static final String DEFAULT_ARRAY_NAME_PATTERN = "${table}__${column}";
   private static final String DEFAULT_ARRAY_FOREIGN_KEY_COLUMN_PATTERN = "${table}_${column}";
   private static final String DEFAULT_ARRAY_INDEX_COLUMN_NAME_PATTERN = "array_index";
@@ -43,9 +46,13 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
   private static final String DEFAULT_JSON_FOREIGN_KEY_COLUMN_PATTERN = DEFAULT_ARRAY_FOREIGN_KEY_COLUMN_PATTERN;
 
   // TODO: Allow overriding all patterns.
+  private String foreignIdColumnDescriptionPattern;
+
   private String arrayNamePattern = DEFAULT_ARRAY_NAME_PATTERN;
   private String arrayForeignKeyColumnPattern = DEFAULT_ARRAY_FOREIGN_KEY_COLUMN_PATTERN;
   private String arrayDescriptionPattern;
+  private String arrayIndexColumnDescriptionPattern;
+  private String arrayItemColumnDescriptionPattern;
   private String arrayIndexColumnNamePattern = DEFAULT_ARRAY_INDEX_COLUMN_NAME_PATTERN;
   private String arrayItemColumnNamePattern = DEFAULT_ARRAY_ITEM_COLUMN_NAME_PATTERN;
   private String arrayTableAlias = DEFAULT_ARRAY_TABLE_ALIAS;
@@ -58,12 +65,16 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
   private final boolean noSQLQuotes;
 
   public Normalize1NFConfiguration(Path outputFile, Path mergeFile, boolean noSQLQuotes, String arrayDescriptionPattern,
-    String jsonDescriptionPattern)
+    String jsonDescriptionPattern, String foreignIdColumnDescriptionPattern, String arrayIndexColumnDescriptionPattern,
+    String arrayItemColumnDescriptionPattern)
     throws ModuleException {
     super(outputFile);
     this.noSQLQuotes = noSQLQuotes;
     this.arrayDescriptionPattern = arrayDescriptionPattern;
     this.jsonDescriptionPattern = jsonDescriptionPattern;
+    this.foreignIdColumnDescriptionPattern = foreignIdColumnDescriptionPattern;
+    this.arrayIndexColumnDescriptionPattern = arrayIndexColumnDescriptionPattern;
+    this.arrayItemColumnDescriptionPattern = arrayItemColumnDescriptionPattern;
 
     if (mergeFile == null) {
       // Create empty configuration so that we don't have to check for null everywhere.
@@ -156,14 +167,15 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
 
     String description = formatTblCol(ncType == ARRAY ? arrayDescriptionPattern : jsonDescriptionPattern, tableName,
       columnName);
-    String query = ncType == ARRAY ? getArrayNormalizationSQL(schemaName, tableName, columnName, primaryKey)
-      : getJsonNormalizationSQL(schemaName, tableName, primaryKey);
+    List<CustomColumnConfiguration> columns = new ArrayList<>();
+    String query = ncType == ARRAY ? getArrayNormalizationSQL(schemaName, tableName, columnName, primaryKey, columns)
+      : getJsonNormalizationSQL(schemaName, tableName, primaryKey, columns);
     PrimaryKeyConfiguration primaryKeyConfiguration = getPrimaryKeyConfiguration(ncType, primaryKey, tableName,
       columnName);
     ForeignKeyConfiguration foreignKeyConfiguration = getForeignKeyConfiguration(ncType, primaryKey, tableName);
 
     ModuleConfigurationUtils.addCustomViewConfiguration(moduleConfiguration, schemaName, viewName, true, description,
-      query, primaryKeyConfiguration, Collections.singletonList(foreignKeyConfiguration));
+      query, columns, primaryKeyConfiguration, Collections.singletonList(foreignKeyConfiguration));
   }
 
   @Override
@@ -204,16 +216,17 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
     if (merge.getDescription() != null) {
       view.setDescription(merge.getDescription());
     }
-    if (merge.getQuery() != null) {
+    if (!Constants.EMPTY.equals(merge.getQuery())) {
       view.setQuery(merge.getQuery());
     }
-    if (merge.getColumns() != null) {
+    if (!merge.getColumns().isEmpty()) {
       view.setColumns(merge.getColumns());
     }
     if (merge.getPrimaryKey() != null) {
       view.setPrimaryKey(merge.getPrimaryKey());
     }
-    if (merge.getForeignKeys() != null) {
+    if (!merge.getForeignKeys().isEmpty()) {
+      // Add, not replace!
       view.getForeignKeys().addAll(merge.getForeignKeys());
     }
   }
@@ -227,7 +240,7 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
   }
 
   private String getArrayNormalizationSQL(String schemaName, String tableName, String columnName,
-    PrimaryKey primaryKey) {
+    PrimaryKey primaryKey, List<CustomColumnConfiguration> columns) {
 
     // Resulting SQL is only tested in PostgreSQL, but "UNNEST ... WITH ORDINALITY" should be standard SQL.
     String indexColumnName = formatTblCol(arrayIndexColumnNamePattern, tableName, columnName);
@@ -236,33 +249,42 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
     String qIndexColumnName = quoteSQL(indexColumnName);
     String qItemColumnName = quoteSQL(itemColumnName);
 
-    StringBuilder sb = getNormalizationSQLStringBuilder(ARRAY, tableName, primaryKey).append(", ")
+    StringBuilder sb = getNormalizationSQLStringBuilder(ARRAY, tableName, primaryKey, columns).append(", ")
       .append(qIndexColumnName).append(", ").append(qItemColumnName).append(" ");
     addNormalizationSQLFrom(sb, schemaName, tableName) //
       .append(" cross join unnest(").append(qColumnName).append(") with ordinality as ") //
       .append(arrayTableAlias).append("(").append(qItemColumnName).append(", ").append(qIndexColumnName).append(")");
 
+    addCustomColumnConfiguration(columns, indexColumnName, null,
+      formatTblCol(arrayIndexColumnDescriptionPattern, tableName, columnName));
+    // Item nullability defaults to false (assume no null items in array).
+    addCustomColumnConfiguration(columns, itemColumnName, false,
+      formatTblCol(arrayItemColumnDescriptionPattern, tableName, columnName));
+
     return sb.toString();
   }
 
-  private String getJsonNormalizationSQL(String schemaName, String tableName, PrimaryKey primaryKey) {
+  private String getJsonNormalizationSQL(String schemaName, String tableName, PrimaryKey primaryKey,
+    List<CustomColumnConfiguration> columns) {
     // Get a template only; do not attempt to calculate columns which would require processing all rows in the table.
-    StringBuilder sb = getNormalizationSQLStringBuilder(JSON, tableName, primaryKey).append(" ");
+    StringBuilder sb = getNormalizationSQLStringBuilder(JSON, tableName, primaryKey, columns).append(" ");
     addNormalizationSQLFrom(sb, schemaName, tableName);
 
     return sb.toString();
   }
 
   private StringBuilder getNormalizationSQLStringBuilder(NormalizedColumnType ncType, String tableName,
-    PrimaryKey primaryKey) {
+    PrimaryKey primaryKey, List<CustomColumnConfiguration> columns) {
 
     StringBuilder sb = new StringBuilder("select");
     boolean first = true;
 
     for (String pkColumnName : primaryKey.getColumnNames()) {
-      sb.append(first ? " " : ", ").append(pkColumnName).append(" as ")
-        .append(quoteSQL(formatTblCol(ncType == ARRAY ? arrayForeignKeyColumnPattern : jsonForeignKeyColumnPattern,
-          tableName, pkColumnName)));
+      String name = formatTblCol(ncType == ARRAY ? arrayForeignKeyColumnPattern : jsonForeignKeyColumnPattern,
+        tableName, pkColumnName);
+      sb.append(first ? " " : ", ").append(pkColumnName).append(" as ").append(quoteSQL(name));
+      addCustomColumnConfiguration(columns, name, null,
+        formatTblCol(foreignIdColumnDescriptionPattern, tableName, pkColumnName));
       first = false;
     }
 
@@ -315,6 +337,18 @@ public class Normalize1NFConfiguration extends ImportConfiguration {
     foreignKeyConfiguration.setReferences(refererences);
 
     return foreignKeyConfiguration;
+  }
+
+  private void addCustomColumnConfiguration(List<CustomColumnConfiguration> list, String name, Boolean nillable,
+    String description) {
+
+    CustomColumnConfiguration customColumnConfiguration = new CustomColumnConfiguration();
+    customColumnConfiguration.setName(name);
+    customColumnConfiguration.setMerkle(false);
+    customColumnConfiguration.setNillable(nillable);
+    customColumnConfiguration.setDescription(description);
+
+    list.add(customColumnConfiguration);
   }
 
   enum NormalizedColumnType {
