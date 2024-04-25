@@ -2093,10 +2093,32 @@ public class JDBCImportModule implements DatabaseImportModule {
     return ignore;
   }
 
+  private void executeSetupStatements() throws ModuleException {
+    ModuleConfiguration configuration = getModuleConfiguration();
+    if (configuration.getSetupStatements() == null)
+      return;
+
+    int i = 0;
+    int count = configuration.getSetupStatements().size();
+
+    try {
+      for (String sql : configuration.getSetupStatements()) {
+        LOGGER.info("Executing setup statement {} of {}", ++i, count);
+        Statement st = getStatement();
+        st.execute(sql);
+      }
+    } catch (SQLException e) {
+      closeConnection();
+      throw new ModuleException().withCause(e).withMessage(e.getMessage());
+    }
+  }
+
   @Override
   public DatabaseFilterModule migrateDatabaseTo(DatabaseFilterModule exportModule) throws ModuleException {
     try {
       exportModule.initDatabase();
+
+      executeSetupStatements();
 
       exportModule.setIgnoredSchemas(getIgnoredExportedSchemas());
 
