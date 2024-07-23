@@ -936,12 +936,11 @@ public class JDBCImportModule implements DatabaseImportModule {
     if (configuration.getName() != null) {
       fk.setName(configuration.getName());
     } else {
-      fk.setName(getForeignKeyName(tableName, configuration.getReferences().get(0).getColumn()));
+      fk.setName(getForeignKeyName(tableName, configuration.getReferences().getFirst().getColumn()));
     }
 
     fk.setReferencedTable(configuration.getReferencedTable());
-    fk.setReferences(configuration.getReferences().stream().map(this::getReferenceConfigurationAsReference)
-      .collect(Collectors.toList()));
+    fk.setReferences(configuration.getReferences().stream().map(this::getReferenceConfigurationAsReference).toList());
     fk.setDescription(configuration.getDescription());
 
     return fk;
@@ -1396,8 +1395,9 @@ public class JDBCImportModule implements DatabaseImportModule {
   }
 
   private String getForeignKeyName(String fkTableName, String fkColumnName) {
-    // TODO: This could probably lead to non-unique names in rare occasions where
-    // the same column is used in two compound foreign keys.
+    // The original foreign key scheme, before specifying foreign keys on custom views was implemented, included
+    // PKTABLE_NAME. It was only used if the database did not return any name. That scheme is vulnerable to exceeding
+    // name length limits in SIARD XSD's, and the fk table and column are sufficient to create a unique id.
     return "FK_" + fkTableName + "_" + fkColumnName;
   }
 
